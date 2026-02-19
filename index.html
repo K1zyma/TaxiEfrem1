@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Taxi Order</title>
+
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+<style>
+body {
+    margin:0;
+    font-family:-apple-system,BlinkMacSystemFont,sans-serif;
+    background:#f2f2f2;
+}
+.container { padding:16px; }
+.card {
+    background:white;
+    border-radius:16px;
+    padding:16px;
+    box-shadow:0 4px 12px rgba(0,0,0,0.05);
+}
+input, select, textarea, button {
+    width:100%;
+    padding:14px;
+    margin-top:12px;
+    border-radius:12px;
+    border:1px solid #ddd;
+    font-size:15px;
+}
+button {
+    background:#2AABEE;
+    color:white;
+    border:none;
+    font-weight:bold;
+}
+.loader {
+    display:none;
+    margin-top:10px;
+}
+</style>
+</head>
+
+<body>
+<div class="container">
+<div class="card">
+
+<h3>🚕 Новый заказ</h3>
+
+<input id="from" placeholder="Откуда (город, улица, дом)">
+<input id="to" placeholder="Куда (город, улица, дом)">
+
+<!-- Выбор даты и времени -->
+<input id="date" type="date" placeholder="Дата поездки">
+<input id="time" type="time" placeholder="Время поездки">
+
+<!-- Ввод машины -->
+<input id="carChoice" placeholder="Напишите модель машины (Необязательно)">
+
+<!-- Выбор тарифа -->
+<select id="tariff">
+  <option value="econom">Эконом</option>
+  <option value="comfort">Комфорт</option>
+</select>
+
+<div class="loader" id="loader">Расчёт...</div>
+
+<input id="phone" placeholder="Телефон (+7...)">
+<textarea id="comment" placeholder="Комментарий"></textarea>
+
+<button onclick="sendOrder()">Заказать</button>
+
+</div>
+</div>
+
+<script>
+let tg = window.Telegram.WebApp;
+tg.expand();
+
+let distanceKM = 0;
+
+// Проверка полного адреса
+function isFullAddress(address){
+    return address.split(",").length >= 2 && address.length > 10;
+}
+
+// Формула расстояния (Haversine)
+function haversine(lat1, lon1, lat2, lon2) {
+    const R = 6371; // Радиус Земли в км
+    const dLat = (lat2-lat1) * Math.PI/180;
+    const dLon = (lon2-lon1) * Math.PI/180;
+
+    const a =
+        Math.sin(dLat/2)*Math.sin(dLat/2) +
+        Math.cos(lat1*Math.PI/180) *
+        Math.cos(lat2*Math.PI/180) *
+        Math.sin(dLon/2) *
+        Math.sin(dLon/2);
+
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c; // Возвращаем расстояние в км
+}
+
+// Получение координат через OpenStreetMap
+async function getCoords(address){
+    const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`;
+    const response = await fetch(url);
+    const data = await response.json();
+    if (data.length === 0) return null;
+    return {
+        lat: parseFloat(data[0].lat),
+        lon: parseFloat(data[0].lon)
+    };
+}
+
+// Проверка выбранных данных
+async function calculateAll() {
+    const from = document.getElementById("from").value;
+    const to = document.getElementById("to").value;
+
+    if (!isFullAddress(from) || !isFullAddress(to)) {
+        alert("Введите полный адрес: город, улица, дом");
+        return;
+    }
+
+    document.getElementById("loader").style.display = "block";
+
+    const fromCoords = await getCoords(from);
+    const toCoords = await getCoords(to);
+
+    if (!fromCoords || !toCoords) {
+        alert("Адрес не найден");
+        document.getElementById("loader").style.display = "none";
+        return;
+    }
+
+    distanceKM = haversine(
+        fromCoords.lat,
+        fromCoords.lon,
+        toCoords.lat,
+        toCoords.lon
+    );
+
+    document.getElementById("loader").style.display = "none";
+}
+
+// Валидация телефона
+function validatePhone(phone){
+    return /^\+?[0-9]{10,15}$/.test(phone);
+}
+
+async function sendOrder() {
+    const phone = document.getElementById("phone").value;
+
+    if (!validatePhone(phone)) {
+        alert("Введите корректный номер телефона");
+        return;
+    }
+
+    await calculateAll();
+
+    const date = document.getElementById("date").value;
+    const time = document.getElementById("time").value;
+
+    if (!date || !time) {
+        alert("Пожалуйста, выберите дату и время поездки");
+        return;
+    }
+
+    // Ввод машины и тарифа
+    const carChoice = document.getElementById("carChoice").value; // Ввод модели машины
+    const tariff = document.getElementById("tariff").value;
+
+    const data = {
+        from: document.getElementById("from").value,
+        to: document.getElementById("to").value,
+        date: date,
+        time: time,
+        carChoice: carChoice,
+        tariff: tariff,
+        phone: phone,
+        comment: document.getElementById("comment").value,
+        distance: distanceKM,
+        tg_id: tg.initDataUnsafe.user?.id,
+        tg_username: tg.initDataUnsafe.user?.username
+    };
+
+    tg.sendData(JSON.stringify(data));
+}
+</script>
+</body>
+</html>
